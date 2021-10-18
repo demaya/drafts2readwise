@@ -1,144 +1,131 @@
-//let selectedBook = selectBook();
-
-const SOURCE_TYPE = 'drafts';    
+const SOURCE_TYPE = "drafts";
 const BASE_URL = "https://readwise.io/api/v2/";
 
 let selectedText;
 if (editor.getSelectedText().length > 0) {
-    selectedText = editor.getSelectedText();
+  selectedText = editor.getSelectedText();
 } else {
-    selectedText = draft.content;
+  selectedText = draft.content;
 }
-
 
 let selectedBook = selectBook(getEntriesFromReadwise);
 if (selectedBook != "cancelled") {
-    postToReadwise(selectedText, selectedBook);
+  postToReadwise(selectedText, selectedBook);
 }
-
 
 function selectBook(data) {
+  let actionPrompt = new Prompt();
+  actionPrompt.isCancellable = true;
 
-    let actionPrompt = new Prompt();
-    actionPrompt.isCancellable = true;
+  entries = getEntriesFromReadwise();
+  entries.forEach(function (bookTitle) {
+    actionPrompt.addButton(bookTitle);
+  });
 
+  actionPrompt.addButton("New Book");
 
-    entries = getEntriesFromReadwise();
-    entries.forEach(function(bookTitle) {
-        actionPrompt.addButton(bookTitle);
-    });
+  let userSelectedAButton = actionPrompt.show();
+  let selectedBook = "userCancelled";
 
-    actionPrompt.addButton("New Book");
+  if (userSelectedAButton) {
+    selectedBook = actionPrompt.buttonPressed;
+  } else {
+    app.displayInfoMessage("Prompt was cancelled.");
+    context.cancel();
+    return "cancelled";
+  }
 
+  if (selectedBook == "New Book") {
+    let newBookPrompt = new Prompt();
+    newBookPrompt.addTextField("bookName", "New Book", "Name");
+    newBookPrompt.addButton("OK");
+    let userSelectedAButtonNewBook = newBookPrompt.show();
 
-    let userSelectedAButton = actionPrompt.show();
-    let selectedBook = "userCancelled";
-
-    if (userSelectedAButton) {
-        selectedBook = actionPrompt.buttonPressed;
+    if (userSelectedAButtonNewBook) {
+      selectedBook = newBookPrompt.fieldValues["bookName"];
     } else {
-        app.displayInfoMessage("Prompt was cancelled.");
-        context.cancel();
-        return "cancelled";
+      app.displayInfoMessage("Prompt was cancelled.");
+      context.cancel();
+      return "cancelled";
     }
-
-
-
-    if (selectedBook == "New Book") {
-        let newBookPrompt = new Prompt();
-        newBookPrompt.addTextField("bookName", "New Book", "Name");
-        newBookPrompt.addButton("OK");
-        let userSelectedAButtonNewBook = newBookPrompt.show();
-
-
-        if (userSelectedAButtonNewBook) {
-            selectedBook = newBookPrompt.fieldValues["bookName"];
-        } else {
-            app.displayInfoMessage("Prompt was cancelled.");
-            context.cancel();
-            return "cancelled";
-        }
-    }
-    return selectedBook;
+  }
+  return selectedBook;
 }
-
 
 function getEntriesFromReadwise() {
+  const GET_URL = BASE_URL + "books/?source=" + SOURCE_TYPE + "&page_size=5";
 
-    const GET_URL = BASE_URL + "books/?source="+ SOURCE_TYPE +"&page_size=5";
+  let credReadwise = Credential.create(
+    "Readwise",
+    "Highlight surfacing service."
+  );
+  credReadwise.addPasswordField("token", "API Token");
+  credReadwise.authorize();
 
-    let credReadwise = Credential.create("Readwise", "Highlight surfacing service.");
-    credReadwise.addPasswordField("token", "API Token");
-    credReadwise.authorize();
+  let httpMain = HTTP.create();
+  let respMain = httpMain.request({
+    url: GET_URL,
+    method: "GET",
+    headers: {
+      Authorization: `Token ${credReadwise.getValue("token")}`,
+    },
+  });
 
-    let httpMain = HTTP.create();
-    let respMain = httpMain.request({
-        "url": GET_URL,
-        "method": "GET",
-        "headers": {
-            "Authorization": `Token ${credReadwise.getValue("token")}`
-        }
+  let entries = [];
+
+  if (respMain.statusCode == 200) {
+    let responseText = respMain.responseText;
+    let responseData = JSON.parse(responseText);
+    let bookResults = responseData.results;
+
+    bookResults.forEach(function (book) {
+      entries.push(book.title);
     });
 
-    //console.log(respMain.error)
+    entries.push("Quotes");
+  } else {
+    console.log("Error in getting books");
+  }
 
-    let entries = [];
-
-    if (respMain.statusCode == 200) {
-
-        let responseText = respMain.responseText;
-        //console.log(responseText);
-        let responseData = JSON.parse(responseText);
-        let bookResults = responseData.results;
-        //console.log(responseData);
-
-
-        bookResults.forEach(function(book) {
-            entries.push(book.title);
-        });
-
-        entries.push("Quotes")
-    } else {
-        console.log("Error in getting books")
-    }
-
-    return entries;
+  return entries;
 }
 
-
 function postToReadwise(selectedText, selectedBook) {
-    const POST_URL = BASE_URL + "highlights/";
+  const POST_URL = BASE_URL + "highlights/";
 
-    let credReadwise = Credential.create("Readwise", "Highlight surfacing service.");
-    credReadwise.addPasswordField("token", "API Token");
-    credReadwise.authorize();
+  let credReadwise = Credential.create(
+    "Readwise",
+    "Highlight surfacing service."
+  );
+  credReadwise.addPasswordField("token", "API Token");
+  credReadwise.authorize();
 
-    if (selectedBook) {
-        let httpMain = HTTP.create();
-        let respMain = httpMain.request({
-            "url": POST_URL,
-            "method": "POST",
-            "data": {
-                "highlights": [{
-                    "text": selectedText,
-                    "title": selectedBook.toString(),
-                    "source_type": SOURCE_TYPE
-                }]
-            },
-            "headers": {
-                "Authorization": `Token ${credReadwise.getValue("token")}`
-            }
-        });
+  if (selectedBook) {
+    let httpMain = HTTP.create();
+    let respMain = httpMain.request({
+      url: POST_URL,
+      method: "POST",
+      data: {
+        highlights: [
+          {
+            text: selectedText,
+            title: selectedBook.toString(),
+            source_type: SOURCE_TYPE,
+          },
+        ],
+      },
+      headers: {
+        Authorization: `Token ${credReadwise.getValue("token")}`,
+      },
+    });
 
-        if (respMain.success) {
-            return true;
-        } else {
-            console.log(`[${respMain.statusCode}] ${respMain.error}`);
-            return false;
-        }
-
+    if (respMain.success) {
+      return true;
     } else {
-        // Nothing to do
-
+      console.log(`[${respMain.statusCode}] ${respMain.error}`);
+      return false;
     }
+  } else {
+    // Nothing to do
+  }
 }
